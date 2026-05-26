@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background-color: #0d0d0d;
+    color: #f1f1f1;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+}
+
+@layer base {
+  html[data-theme="light"] body {
+    background-color: #f4f6fb;
+    color: #0f172a;
+  }
+
+  html[data-theme="light"] .app-shell {
+    background-color: #f4f6fb !important;
+    color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .bg-\[\#0d0d0d\] {
+    background-color: #f4f6fb !important;
+  }
+
+  html[data-theme="light"] .bg-\[\#1a1a1a\] {
+    background-color: #ffffff !important;
+  }
+
+  html[data-theme="light"] .bg-black\/70 {
+    background-color: rgba(15, 23, 42, 0.35) !important;
+  }
+
+  html[data-theme="light"] .text-white {
+    color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .text-black {
+    color: #ffffff !important;
+  }
+
+  html[data-theme="light"] .text-gray-300 {
+    color: #334155 !important;
+  }
+
+  html[data-theme="light"] .text-gray-400 {
+    color: #475569 !important;
+  }
+
+  html[data-theme="light"] .text-gray-500 {
+    color: #64748b !important;
+  }
+
+  html[data-theme="light"] .text-gray-600 {
+    color: #94a3b8 !important;
+  }
+
+  html[data-theme="light"] .border-white\/5,
+  html[data-theme="light"] .border-white\/10,
+  html[data-theme="light"] .border-white\/20,
+  html[data-theme="light"] .border-white\/30 {
+    border-color: rgba(15, 23, 42, 0.12) !important;
+  }
+
+  html[data-theme="light"] .bg-white\/1 {
+    background-color: rgba(15, 23, 42, 0.015) !important;
+  }
+
+  html[data-theme="light"] .bg-white\/2 {
+    background-color: rgba(15, 23, 42, 0.02) !important;
+  }
+
+  html[data-theme="light"] .bg-white\/3 {
+    background-color: rgba(15, 23, 42, 0.04) !important;
+  }
+
+  html[data-theme="light"] .bg-white\/5 {
+    background-color: rgba(15, 23, 42, 0.05) !important;
+  }
+
+  html[data-theme="light"] .bg-white\/6 {
+    background-color: rgba(15, 23, 42, 0.06) !important;
+  }
+
+  html[data-theme="light"] .bg-white\/8 {
+    background-color: rgba(15, 23, 42, 0.08) !important;
+  }
+
+  html[data-theme="light"] .bg-white\/10 {
+    background-color: rgba(15, 23, 42, 0.1) !important;
+  }
+
+  html[data-theme="light"] .hover\:bg-white\/5:hover {
+    background-color: rgba(15, 23, 42, 0.05) !important;
+  }
+
+  html[data-theme="light"] .hover\:bg-white\/10:hover {
+    background-color: rgba(15, 23, 42, 0.1) !important;
+  }
+
+  html[data-theme="light"] .hover\:bg-white\/15:hover {
+    background-color: rgba(15, 23, 42, 0.15) !important;
+  }
+
+  html[data-theme="light"] .bg-white {
+    background-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .hover\:bg-gray-100:hover {
+    background-color: #1e293b !important;
+  }
+
+  html[data-theme="light"] .shadow-2xl {
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16) !important;
+  }
+
+  html[data-theme="light"] ::-webkit-scrollbar-track {
+    background: #e2e8f0;
+  }
+
+  html[data-theme="light"] ::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+  }
+
+  html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+  }
+}
