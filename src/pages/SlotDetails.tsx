@@ -5,8 +5,11 @@ import { AppSettings } from "../types/settings";
 import { FileItem } from "../components/FileItem";
 import {
   addItemToSlot,
+  pinMostUsedItems,
+  recordItemOpened,
   removeItemFromSlot,
   removeItemsFromSlot,
+  toggleItemPinned,
   updateItemInSlot,
   getAssignedSlotPathKeys,
 } from "../services/slotService";
@@ -128,6 +131,28 @@ export function SlotDetails({
       })
     : slot.items;
 
+  const displayItems = [...filteredItems].sort((a, b) => {
+    const aPinned = a.pinned === true;
+    const bPinned = b.pinned === true;
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
+    const aCount =
+      typeof a.useCount === "number" && Number.isFinite(a.useCount)
+        ? a.useCount
+        : 0;
+    const bCount =
+      typeof b.useCount === "number" && Number.isFinite(b.useCount)
+        ? b.useCount
+        : 0;
+    if (bCount !== aCount) return bCount - aCount;
+
+    const aOpened = a.lastOpenedAt ?? "";
+    const bOpened = b.lastOpenedAt ?? "";
+    if (aOpened !== bOpened) return bOpened.localeCompare(aOpened);
+
+    return a.name.localeCompare(b.name);
+  });
+
   const selectedCount = selectedItemIds.length;
   const allItemsSelected =
     slot.items.length > 0 && selectedCount === slot.items.length;
@@ -203,6 +228,30 @@ export function SlotDetails({
 
     setSelectedItemIds([]);
     setSelectionMode(false);
+  }
+
+  function handleTogglePin(itemId: string) {
+    const changed = toggleItemPinned(slot.id, itemId);
+    if (changed) {
+      onSlotsChange();
+    }
+  }
+
+  function handleItemOpened(itemId: string) {
+    const changed = recordItemOpened(slot.id, itemId);
+    if (changed) {
+      onSlotsChange();
+    }
+  }
+
+  function handlePinMostUsed() {
+    const result = pinMostUsedItems(slot.id, 5);
+    if (result.pinned > 0) {
+      onSlotsChange();
+      return;
+    }
+
+    alert("No frequently used items yet. Open files from this slot first, then try again.");
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -403,6 +452,14 @@ export function SlotDetails({
               </>
             ) : (
               <>
+                <button
+                  onClick={handlePinMostUsed}
+                  disabled={slot.items.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-200 text-sm hover:bg-amber-500/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Pin your most-used items in this slot"
+                >
+                  📌 Pin Most Used
+                </button>
                 <button
                   onClick={handleRemoveAllFromSlot}
                   disabled={slot.items.length === 0}
@@ -607,13 +664,19 @@ export function SlotDetails({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {filteredItems.map((item) => (
+            {displayItems.map((item) => (
               <FileItem
                 key={item.id}
                 item={item}
                 selectionMode={selectionMode}
                 selected={selectedItemIds.includes(item.id)}
                 onToggleSelect={() => toggleItemSelection(item.id)}
+                onTogglePin={
+                  !selectionMode
+                    ? () => handleTogglePin(item.id)
+                    : undefined
+                }
+                onOpened={() => handleItemOpened(item.id)}
                 onReturnToDesktop={
                   !selectionMode &&
                   !isDesktopOriginPath(item.path, settings.desktopPath) &&

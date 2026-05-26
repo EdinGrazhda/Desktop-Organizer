@@ -95,9 +95,11 @@ export function FileItem({
         </div>
       </div>
 
-      <div className="mt-3 min-w-0">
+      <div className={`mt-3 min-w-0 ${!selectionMode ? "pb-7" : ""}`}>
         <p className="text-sm text-white font-medium truncate">{item.name}</p>
-        <p className="text-[11px] text-gray-600 break-all mt-1 line-clamp-2">{item.path}</p>
+        <p className="text-[11px] text-gray-600 break-all mt-1 line-clamp-2">
+          {item.path}
+        </p>
         {typeof item.useCount === "number" && item.useCount > 0 && (
           <p className="text-[10px] text-gray-500 mt-1">
             Opened {item.useCount} time{item.useCount !== 1 ? "s" : ""}
@@ -106,7 +108,7 @@ export function FileItem({
       </div>
 
       {!selectionMode && (
-        <div className="absolute top-2 right-2 hidden group-hover:flex items-center gap-1 shrink-0">
+        <div className="absolute bottom-2 right-2 hidden group-hover:flex items-center gap-1 shrink-0">
           <button
             onClick={(e) => {
               e.stopPropagation();
