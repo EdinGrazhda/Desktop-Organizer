@@ -237,6 +237,23 @@ export function SlotDetails({
     }
   }
 
+  function handleItemPathResolved(item: SlotItem, resolvedPath: string) {
+    const resolvedKey = normalizePathKey(resolvedPath);
+    const currentKey = normalizePathKey(item.path);
+    if (!resolvedKey || resolvedKey === currentKey) return;
+
+    const nextName = resolvedPath.split(/[\\/]/).pop() ?? item.name;
+    const isDir = item.type === "folder" || !nextName.includes(".");
+
+    updateItemInSlot(slot.id, item.id, {
+      name: nextName,
+      path: resolvedPath,
+      type: detectItemType(resolvedPath, isDir),
+      extension: isDir ? undefined : getFileExtension(nextName),
+    });
+    onSlotsChange();
+  }
+
   function handleItemOpened(itemId: string) {
     const changed = recordItemOpened(slot.id, itemId);
     if (changed) {
@@ -251,7 +268,9 @@ export function SlotDetails({
       return;
     }
 
-    alert("No frequently used items yet. Open files from this slot first, then try again.");
+    alert(
+      "No frequently used items yet. Open files from this slot first, then try again.",
+    );
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -497,7 +516,8 @@ export function SlotDetails({
 
         {selectionMode && (
           <p className="text-xs text-gray-400 mt-2">
-            {selectedCount} item{selectedCount !== 1 ? "s" : ""} selected. Removing from slot does not delete files from disk.
+            {selectedCount} item{selectedCount !== 1 ? "s" : ""} selected.
+            Removing from slot does not delete files from disk.
           </p>
         )}
 
@@ -672,9 +692,10 @@ export function SlotDetails({
                 selected={selectedItemIds.includes(item.id)}
                 onToggleSelect={() => toggleItemSelection(item.id)}
                 onTogglePin={
-                  !selectionMode
-                    ? () => handleTogglePin(item.id)
-                    : undefined
+                  !selectionMode ? () => handleTogglePin(item.id) : undefined
+                }
+                onPathResolved={(resolvedPath) =>
+                  handleItemPathResolved(item, resolvedPath)
                 }
                 onOpened={() => handleItemOpened(item.id)}
                 onReturnToDesktop={

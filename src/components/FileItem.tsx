@@ -2,6 +2,7 @@ import { SlotItem } from "../types/slot";
 import { fileTypeIcons } from "../utils/icons";
 import { openFile } from "../services/fileService";
 import { detectSlotFromExtension, getFileExtension } from "../utils/fileTypes";
+import { normalizePathKey } from "../utils/path";
 
 interface FileItemProps {
   item: SlotItem;
@@ -12,6 +13,7 @@ interface FileItemProps {
   onToggleSelect?: () => void;
   onTogglePin?: () => void;
   onOpened?: () => void;
+  onPathResolved?: (resolvedPath: string) => void;
 }
 
 export function FileItem({
@@ -23,15 +25,29 @@ export function FileItem({
   onToggleSelect,
   onTogglePin,
   onOpened,
+  onPathResolved,
 }: FileItemProps) {
   const { icon, badge } = getItemVisual(item);
 
   async function handleOpen() {
     try {
-      await openFile(item.path);
+      const openedPath = await openFile(item.path);
+      const openedPathKey = normalizePathKey(openedPath);
+      const currentPathKey = normalizePathKey(item.path);
+
+      if (
+        openedPathKey.length > 0 &&
+        currentPathKey.length > 0 &&
+        openedPathKey !== currentPathKey
+      ) {
+        onPathResolved?.(openedPath);
+      }
+
       onOpened?.();
     } catch (e) {
       console.error("Failed to open file:", e);
+      const message = e instanceof Error ? e.message : String(e);
+      alert(`Could not open "${item.name}". ${message}`);
     }
   }
 
@@ -84,6 +100,22 @@ export function FileItem({
           {icon}
         </div>
         <div className="flex items-center gap-1">
+          {!selectionMode && onTogglePin && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePin();
+              }}
+              className={`p-1.5 rounded-lg transition-colors text-xs border ${
+                item.pinned
+                  ? "bg-amber-500/20 text-amber-300 border-amber-300/30 hover:bg-amber-500/30"
+                  : "bg-white/5 text-gray-300 border-white/10 hover:bg-amber-500/20 hover:text-amber-300"
+              }`}
+              title={item.pinned ? "Unpin app/item" : "Pin app/item"}
+            >
+              📌
+            </button>
+          )}
           {item.pinned && (
             <span className="text-[10px] px-2 py-1 rounded-full bg-amber-500/20 text-amber-200 border border-amber-300/25">
               📌
@@ -131,22 +163,6 @@ export function FileItem({
               ↩
             </button>
           )}
-          {onTogglePin && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePin();
-              }}
-              className={`p-1.5 rounded-lg transition-colors text-xs ${
-                item.pinned
-                  ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
-                  : "hover:bg-amber-500/20 text-gray-400 hover:text-amber-300"
-              }`}
-              title={item.pinned ? "Unpin item" : "Pin item"}
-            >
-              📌
-            </button>
-          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -177,7 +193,8 @@ function getItemVisual(item: SlotItem): { icon: string; badge: string } {
   if (category === "archives") return { icon: "🗜️", badge: "archive" };
   if (category === "programs") return { icon: "⚙️", badge: "program" };
   if (category === "games") return { icon: "🎮", badge: "game" };
-  if (category === "documents") return { icon: "📄", badge: ext ? `.${ext}` : "file" };
+  if (category === "documents")
+    return { icon: "📄", badge: ext ? `.${ext}` : "file" };
 
   return { icon: "📄", badge: ext ? `.${ext}` : "file" };
 }

@@ -152,7 +152,8 @@ function normalizeItem(input: Partial<SlotItem>): SlotItem | null {
   const useCount = Math.max(0, Math.floor(useCountRaw));
   const pinned = input.pinned === true;
   const lastOpenedAt =
-    typeof input.lastOpenedAt === "string" && input.lastOpenedAt.trim().length > 0
+    typeof input.lastOpenedAt === "string" &&
+    input.lastOpenedAt.trim().length > 0
       ? input.lastOpenedAt
       : undefined;
 
@@ -222,13 +223,63 @@ function normalizeSlots(payload: unknown): Slot[] | null {
     .filter((slot): slot is Slot => slot !== null);
 }
 
+function enforceUniqueIds(slots: Slot[]): { slots: Slot[]; changed: boolean } {
+  const usedSlotIds = new Set<string>();
+  let changed = false;
+
+  const nextSlots = slots.map((slot) => {
+    let slotId = slot.id;
+    if (!slotId || usedSlotIds.has(slotId)) {
+      slotId = createId("slot");
+      changed = true;
+    }
+    usedSlotIds.add(slotId);
+
+    const usedItemIds = new Set<string>();
+    let itemsChanged = false;
+    const nextItems = slot.items.map((item) => {
+      let itemId = item.id;
+      if (!itemId || usedItemIds.has(itemId)) {
+        itemId = createId("item");
+      }
+
+      if (itemId !== item.id) {
+        changed = true;
+        itemsChanged = true;
+      }
+
+      usedItemIds.add(itemId);
+      return itemId === item.id ? item : { ...item, id: itemId };
+    });
+
+    if (slotId === slot.id && !itemsChanged) return slot;
+
+    return {
+      ...slot,
+      id: slotId,
+      items: nextItems,
+    };
+  });
+
+  return { slots: nextSlots, changed };
+}
+
 function readLocalSlots(): Slot[] | null {
   try {
     const raw = localStorage.getItem(SLOTS_KEY);
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as unknown;
-    return normalizeSlots(parsed);
+    const normalized = normalizeSlots(parsed);
+    if (!normalized) return null;
+
+    const { slots, changed } = enforceUniqueIds(normalized);
+    if (changed) {
+      writeLocalSlots(slots);
+      void persistSlotsStateToDisk(slots);
+    }
+
+    return slots;
   } catch {
     return null;
   }
@@ -244,6 +295,34 @@ function writeLocalSlots(slots: Slot[]): void {
 
 function totalItemCount(slots: Slot[]): number {
   return slots.reduce((sum, slot) => sum + slot.items.length, 0);
+}
+
+function parseIsoTimestamp(input: string | undefined): number {
+  if (typeof input !== "string" || input.trim().length === 0) return 0;
+  const ms = Date.parse(input);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function latestSlotsTimestamp(slots: Slot[]): number {
+  let latest = 0;
+
+  for (const slot of slots) {
+    latest = Math.max(
+      latest,
+      parseIsoTimestamp(slot.updatedAt),
+      parseIsoTimestamp(slot.createdAt),
+    );
+
+    for (const item of slot.items) {
+      latest = Math.max(
+        latest,
+        parseIsoTimestamp(item.lastOpenedAt),
+        parseIsoTimestamp(item.addedAt),
+      );
+    }
+  }
+
+  return latest;
 }
 
 function collectAssignedPathKeys(slots: Slot[]): Set<string> {
@@ -262,18 +341,54 @@ async function loadSlotsStateFromDisk(): Promise<Slot[] | null> {
   try {
     const payload = await invoke<unknown>("load_slots_state");
     if (!payload) return null;
-    return normalizeSlots(payload);
+    const normalized = normalizeSlots(payload);
+    if (!normalized) return null;
+    return enforceUniqueIds(normalized).slots;
   } catch {
     return null;
   }
 }
 
+let persistQueue: Promise<void> = Promise.resolve();
+
 async function persistSlotsStateToDisk(slots: Slot[]): Promise<void> {
+  // Serialize current snapshot so queued writes are deterministic even if caller mutates arrays later.
+  let serialized = "";
   try {
-    await invoke("save_slots_state", { slots });
-  } catch {
-    // Ignore: localStorage remains the immediate source while disk is best-effort backup.
+    serialized = JSON.stringify(slots);
+  } catch (err) {
+    console.error("Failed to serialize slots for disk backup:", err);
+    return;
   }
+
+  persistQueue = persistQueue
+    .catch(() => undefined)
+    .then(async () => {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(serialized);
+      } catch (err) {
+        console.error("Failed to parse serialized slot snapshot:", err);
+        return;
+      }
+
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          await invoke("save_slots_state", { slots: payload });
+          return;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      console.error(
+        "Failed to persist slots to disk after retries:",
+        lastError,
+      );
+    });
+
+  await persistQueue;
 }
 
 async function loadStoredSlotSnapshots(): Promise<StoredSlotSnapshot[] | null> {
@@ -396,6 +511,20 @@ function shouldPreferDisk(localSlots: Slot[], diskSlots: Slot[]): boolean {
 
   if (diskCount === 0) return false;
   if (localCount === 0) return true;
+
+  const localTimestamp = latestSlotsTimestamp(localSlots);
+  const diskTimestamp = latestSlotsTimestamp(diskSlots);
+
+  // Prefer whichever snapshot is newer when both have timestamps.
+  if (
+    localTimestamp > 0 &&
+    diskTimestamp > 0 &&
+    localTimestamp !== diskTimestamp
+  ) {
+    return diskTimestamp > localTimestamp;
+  }
+
+  // Fallback when timestamps are unavailable or equal.
   return diskCount > localCount;
 }
 
@@ -420,6 +549,13 @@ export async function recoverSlotsOnStartup(): Promise<void> {
     }
   }
 
+  const { slots: dedupedSlots, changed: idsChanged } =
+    enforceUniqueIds(working);
+  if (idsChanged) {
+    working = dedupedSlots;
+    writeLocalSlots(working);
+  }
+
   await persistSlotsStateToDisk(working);
 }
 
@@ -431,6 +567,10 @@ export function loadSlots(): Slot[] {
 export function saveSlots(slots: Slot[]): void {
   writeLocalSlots(slots);
   void persistSlotsStateToDisk(slots);
+}
+
+export async function flushSlotsBackup(): Promise<void> {
+  await persistSlotsStateToDisk(loadSlots());
 }
 
 export function createSlot(
@@ -494,7 +634,8 @@ export function addItemToSlot(
     pinned: item.pinned === true,
     useCount,
     lastOpenedAt:
-      typeof item.lastOpenedAt === "string" && item.lastOpenedAt.trim().length > 0
+      typeof item.lastOpenedAt === "string" &&
+      item.lastOpenedAt.trim().length > 0
         ? item.lastOpenedAt
         : undefined,
     id: createId("item"),
@@ -595,7 +736,13 @@ export function updateItemInSlot(
   updates: Partial<
     Pick<
       SlotItem,
-      "name" | "path" | "type" | "extension" | "pinned" | "useCount" | "lastOpenedAt"
+      | "name"
+      | "path"
+      | "type"
+      | "extension"
+      | "pinned"
+      | "useCount"
+      | "lastOpenedAt"
     >
   >,
 ): void {
@@ -653,10 +800,7 @@ export function recordItemOpened(slotId: string, itemId: string): boolean {
   return true;
 }
 
-export function pinMostUsedItems(
-  slotId: string,
-  limit = 5,
-): PinMostUsedResult {
+export function pinMostUsedItems(slotId: string, limit = 5): PinMostUsedResult {
   const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 5;
 
   const slots = loadSlots();
@@ -687,7 +831,9 @@ export function pinMostUsedItems(
     return { pinned: 0 };
   }
 
-  const targetIds = new Set(ranked.slice(0, safeLimit).map((entry) => entry.item.id));
+  const targetIds = new Set(
+    ranked.slice(0, safeLimit).map((entry) => entry.item.id),
+  );
   let changed = 0;
 
   slot.items = slot.items.map((item) => {

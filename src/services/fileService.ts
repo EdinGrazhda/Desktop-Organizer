@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { normalizePathKey } from "../utils/path";
 
 export interface DesktopFile {
@@ -31,9 +32,56 @@ export interface RestoreAllResult {
   mappings: RestorePathMapping[];
 }
 
-export async function openFile(path: string): Promise<void> {
-  const normalized = path.replace(/\//g, "\\");
-  await invoke("open_item_path", { path: normalized });
+export async function openFile(path: string): Promise<string> {
+  const raw = typeof path === "string" ? path.trim() : "";
+  if (!raw) {
+    throw new Error("Missing item path");
+  }
+
+  const normalized = raw.replace(/\//g, "\\");
+  let resolvedFromBackend: string | null = null;
+
+  try {
+    const openedPath = await invoke<string>("open_item_path", {
+      path: normalized,
+    });
+
+    if (typeof openedPath === "string" && openedPath.trim().length > 0) {
+      return openedPath;
+    }
+  } catch (invokeError) {
+    console.warn("open_item_path failed, trying opener fallback:", invokeError);
+
+    try {
+      const resolved = await invoke<string>("resolve_item_path", {
+        path: normalized,
+      });
+      if (typeof resolved === "string" && resolved.trim().length > 0) {
+        resolvedFromBackend = resolved.trim();
+      }
+    } catch (resolveError) {
+      console.warn("resolve_item_path fallback failed:", resolveError);
+    }
+  }
+
+  // Fallback: try opening with plugin-opener directly from the frontend.
+  const candidates = Array.from(
+    new Set([resolvedFromBackend ?? "", raw, normalized]),
+  ).filter((candidate) => candidate.length > 0);
+  let lastError: unknown;
+
+  for (const candidate of candidates) {
+    try {
+      await openPath(candidate);
+      return candidate.replace(/\\/g, "/");
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw new Error(
+    `Unable to open path: ${raw}. ${lastError instanceof Error ? lastError.message : String(lastError ?? "Unknown error")}`,
+  );
 }
 
 export async function moveItemToSlot(

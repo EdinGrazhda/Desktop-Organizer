@@ -1,6 +1,8 @@
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Serialize)]
 pub struct DesktopFile {
@@ -23,6 +25,9 @@ pub struct StoredSlotSnapshot {
     pub name: String,
     pub items: Vec<StoredSlotItem>,
 }
+
+static PATH_RESOLUTION_CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
+static NAME_RESOLUTION_CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
 
 #[tauri::command]
 pub fn scan_desktop() -> Result<Vec<DesktopFile>, String> {
@@ -54,56 +59,63 @@ pub fn scan_desktop() -> Result<Vec<DesktopFile>, String> {
 }
 
 #[tauri::command]
-pub fn open_item_path(path: String) -> Result<(), String> {
-    let normalized = path.replace('/', "\\");
-    if !std::path::Path::new(&normalized).exists() {
-        return Err(format!("Path does not exist: {}", normalized));
-    }
+pub fn open_item_path(path: String) -> Result<String, String> {
+    let resolved = resolve_existing_item_path(&path)
+        .ok_or_else(|| format!("Path does not exist: {}", path))?;
 
     #[cfg(target_os = "windows")]
     {
-        let status = std::process::Command::new("cmd")
-            .args(["/C", "start", "", &normalized])
-            .status()
-            .map_err(|e| e.to_string())?;
+        let resolved_str = resolved.to_string_lossy().to_string();
+        let launch = std::process::Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(&resolved_str)
+            .spawn();
 
-        if !status.success() {
-            return Err(format!("Failed to open path: {}", normalized));
+        if let Err(primary_err) = launch {
+            std::process::Command::new("explorer")
+                .arg(&resolved_str)
+                .spawn()
+                .map_err(|fallback_err| {
+                    format!(
+                        "Failed to open path: {} (cmd error: {}, explorer error: {})",
+                        resolved_str, primary_err, fallback_err
+                    )
+                })?;
         }
 
-        return Ok(());
+        return Ok(resolved.to_string_lossy().replace('\\', "/"));
     }
 
     #[cfg(target_os = "macos")]
     {
-        let status = std::process::Command::new("open")
-            .arg(&path)
-            .status()
+        std::process::Command::new("open")
+            .arg(&resolved)
+            .spawn()
             .map_err(|e| e.to_string())?;
 
-        if !status.success() {
-            return Err(format!("Failed to open path: {}", path));
-        }
-
-        return Ok(());
+        return Ok(resolved.to_string_lossy().to_string());
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let status = std::process::Command::new("xdg-open")
-            .arg(&path)
-            .status()
+        std::process::Command::new("xdg-open")
+            .arg(&resolved)
+            .spawn()
             .map_err(|e| e.to_string())?;
 
-        if !status.success() {
-            return Err(format!("Failed to open path: {}", path));
-        }
-
-        return Ok(());
+        return Ok(resolved.to_string_lossy().to_string());
     }
 
     #[allow(unreachable_code)]
     Err("Unsupported platform".into())
+}
+
+#[tauri::command]
+pub fn resolve_item_path(path: String) -> Result<String, String> {
+    let resolved = resolve_existing_item_path(&path)
+        .ok_or_else(|| format!("Path does not exist: {}", path))?;
+
+    Ok(resolved.to_string_lossy().replace('\\', "/"))
 }
 
 #[tauri::command]
@@ -309,6 +321,179 @@ fn get_desktop_path() -> Option<std::path::PathBuf> {
             return Some(std::path::PathBuf::from(home).join("Desktop"));
         }
     }
+    None
+}
+
+fn resolve_existing_item_path(path: &str) -> Option<PathBuf> {
+    let source = path.trim().trim_matches('"');
+    if source.is_empty() {
+        return None;
+    }
+
+    let normalized = if cfg!(target_os = "windows") {
+        source.replace('/', "\\")
+    } else {
+        source.to_string()
+    };
+    let candidate = PathBuf::from(normalized);
+    let input_key = normalize_lookup_key(&candidate);
+
+    if candidate.exists() {
+        remember_resolution(&input_key, None, &candidate);
+        return Some(candidate);
+    }
+
+    if let Some(cached) = lookup_cached_path(&input_key) {
+        return Some(cached);
+    }
+
+    let target_name = candidate
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.trim().to_lowercase())?;
+    if target_name.is_empty() {
+        return None;
+    }
+
+    if let Some(cached) = lookup_cached_name(&target_name) {
+        remember_resolution(&input_key, Some(&target_name), &cached);
+        return Some(cached);
+    }
+
+    let file_name = candidate.file_name()?.to_os_string();
+
+    let mut roots: Vec<PathBuf> = Vec::new();
+
+    if let Some(parent) = candidate.parent() {
+        if parent.exists() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+
+    if let Some(storage_dir) = get_desknest_storage_dir() {
+        roots.push(storage_dir);
+    }
+    if let Some(desktop_dir) = get_desktop_path() {
+        roots.push(desktop_dir);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(public_dir) = std::env::var("PUBLIC") {
+            roots.push(PathBuf::from(public_dir).join("Desktop"));
+        }
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            roots.push(
+                PathBuf::from(appdata)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Start Menu")
+                    .join("Programs"),
+            );
+        }
+        if let Ok(program_data) = std::env::var("PROGRAMDATA") {
+            roots.push(
+                PathBuf::from(program_data)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Start Menu")
+                    .join("Programs"),
+            );
+        }
+    }
+
+    // Quick direct checks first before recursive scans.
+    for root in &roots {
+        let direct = root.join(&file_name);
+        if direct.exists() {
+            remember_resolution(&input_key, Some(&target_name), &direct);
+            return Some(direct);
+        }
+    }
+
+    for root in roots {
+        if let Some(found) = find_entry_by_name(&root, &target_name, 0, 6) {
+            remember_resolution(&input_key, Some(&target_name), &found);
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn normalize_lookup_key(path: &Path) -> String {
+    path.to_string_lossy().to_lowercase()
+}
+
+fn path_cache() -> &'static Mutex<HashMap<String, PathBuf>> {
+    PATH_RESOLUTION_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn name_cache() -> &'static Mutex<HashMap<String, PathBuf>> {
+    NAME_RESOLUTION_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn lookup_cached_path(key: &str) -> Option<PathBuf> {
+    let cache = path_cache().lock().ok()?;
+    let cached = cache.get(key)?.clone();
+    drop(cache);
+
+    if cached.exists() {
+        Some(cached)
+    } else {
+        None
+    }
+}
+
+fn lookup_cached_name(name: &str) -> Option<PathBuf> {
+    let cache = name_cache().lock().ok()?;
+    let cached = cache.get(name)?.clone();
+    drop(cache);
+
+    if cached.exists() {
+        Some(cached)
+    } else {
+        None
+    }
+}
+
+fn remember_resolution(input_key: &str, target_name: Option<&str>, resolved: &Path) {
+    if let Ok(mut cache) = path_cache().lock() {
+        cache.insert(input_key.to_string(), resolved.to_path_buf());
+    }
+
+    if let Some(name) = target_name {
+        if let Ok(mut cache) = name_cache().lock() {
+            cache.insert(name.to_string(), resolved.to_path_buf());
+        }
+    }
+}
+
+fn find_entry_by_name(
+    root: &Path,
+    target_name_lower: &str,
+    depth: usize,
+    max_depth: usize,
+) -> Option<PathBuf> {
+    if depth > max_depth || !root.exists() {
+        return None;
+    }
+
+    let entries = fs::read_dir(root).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let entry_name = entry.file_name().to_string_lossy().to_lowercase();
+        if entry_name == target_name_lower {
+            return Some(path);
+        }
+
+        if path.is_dir() {
+            if let Some(found) = find_entry_by_name(&path, target_name_lower, depth + 1, max_depth) {
+                return Some(found);
+            }
+        }
+    }
+
     None
 }
 

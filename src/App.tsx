@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { Slot } from "./types/slot";
 import { AppSettings } from "./types/settings";
-import { loadSlots, recoverSlotsOnStartup } from "./services/slotService";
+import {
+  loadSlots,
+  recoverSlotsOnStartup,
+  flushSlotsBackup,
+} from "./services/slotService";
 import { loadSettings } from "./services/settingsService";
 import { AppSidebar } from "./components/AppSidebar";
 import { Dashboard } from "./pages/Dashboard";
@@ -40,6 +44,30 @@ function App() {
       active = false;
     };
   }, [refreshSlots]);
+
+  useEffect(() => {
+    const flush = () => {
+      void flushSlotsBackup();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flush();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    const intervalId = window.setInterval(flush, 30000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
