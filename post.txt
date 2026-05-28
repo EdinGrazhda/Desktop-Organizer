@@ -1,0 +1,134 @@
+N'Rend (DeskNest) - Codebase Post
+
+What this app is made for
+N'Rend is a desktop organizer for Windows that helps users clean up a messy desktop by sorting files, folders, shortcuts, and programs into "slots" (category containers). Instead of losing items across random desktop positions, users can quickly open, search, pin, and manage them inside one interface.
+
+Main user value:
+- Organize desktop items by category (Games, Documents, Coding, Work, Images, Videos, School, Downloads, and custom slots)
+- Auto-sort desktop items by detected type/extension
+- Add items by drag-drop, auto-sort modal, or manual path/browser input
+- Open items safely even when saved paths become stale
+- Restore moved items back to Desktop
+- Keep state durable with local + disk backup and recovery
+
+
+What it is made with
+Frontend:
+- React 19 + TypeScript
+- Vite 7
+- Tailwind CSS 4
+- Lucide / Phosphor icon libraries
+
+Desktop runtime and backend:
+- Tauri 2 (Rust + WebView)
+- Rust commands for file scanning, opening, moving, persistence, and Windows startup integration
+- Tauri plugins: dialog and opener
+
+Packaging and distribution:
+- Windows MSI bundle via Tauri
+
+
+Codebase structure (high level)
+- src/: React UI, pages, components, services, hooks, utilities, and types
+- src/pages/: main screens (Dashboard, SlotDetails, Settings)
+- src/components/: reusable UI parts (slot cards, file items, auto-sort modal, etc.)
+- src/services/: app logic and persistence bridge
+  - slotService.ts: slot/item CRUD, dedupe, pinning, recover/flush logic
+  - fileService.ts: invoke wrappers for Rust commands
+  - settingsService.ts: settings load/save
+- src/utils/: detection and safety helpers
+  - fileTypes.ts: type/category detection
+  - path.ts: desktop-origin and move-safety checks
+- src-tauri/src/commands.rs: native Rust commands for desktop scan, opening, moving, backup state, restore, and autostart
+- src-tauri/tauri.conf.json: Tauri app config (window, dev/build commands, bundle target)
+
+
+All procedures
+
+1) App startup procedure
+1. App launches and loads settings.
+2. App attempts startup recovery for slots from local storage and disk backup.
+3. If needed, it scans DeskNest storage folders to rebuild missing metadata.
+4. Dashboard renders with slots and searchable content.
+
+2) Slot management procedure
+1. User creates a new slot (name, icon, color, description).
+2. User can edit or delete slots.
+3. Delete only removes slot entries in app state, not actual files on disk.
+
+3) Item intake procedure (3 paths)
+A) Drag and drop to a slot
+1. User drags desktop items onto a slot card.
+2. App deduplicates by normalized path/name.
+3. If physical move applies, user gets confirmation first.
+4. App adds item metadata to slot and refreshes state.
+
+B) Drop in empty area -> auto-sort modal
+1. User drops items on empty dashboard space or clicks Auto Sort.
+2. App scans desktop, filters already-assigned items, and opens auto-sort modal.
+3. User confirms target slot assignments.
+4. App applies add/move rules and saves results.
+
+C) Manual add in Slot Details
+1. User opens a slot and uses Add Item.
+2. User browses or pastes a path.
+3. App auto-detects type (file/folder/program/shortcut).
+4. If move is required, confirmation appears.
+5. Item is added and slot state is saved.
+
+4) Open and usage tracking procedure
+1. User clicks an item card.
+2. Backend resolves path (including stale-path recovery attempts).
+3. App opens item and can update resolved path in slot metadata.
+4. Usage stats update (useCount and lastOpenedAt).
+5. User can pin/unpin items; pinned items are sorted first.
+
+5) Restore procedure
+A) Per-item restore to Desktop
+1. User triggers return action on one item.
+2. Backend moves item back to Desktop.
+3. App remaps item path and refreshes slot state.
+
+B) Slot-level / global restore
+1. User confirms restore action.
+2. App moves eligible items from DeskNest slot storage back to Desktop.
+3. App remaps stored paths and reports moved/skipped/failed summary.
+
+6) Settings procedure
+1. User can enable/disable launch on startup.
+2. User can switch theme (dark/light/system).
+3. User can set custom desktop path.
+4. User can toggle physical move behavior.
+5. User can run duplicate cleanup for slot entries.
+
+7) Physical move safety procedure
+1. App evaluates each item with path/type rules before moving.
+2. Program launchers and shortcuts are treated as references (not physically moved).
+3. Protected/system-critical locations are blocked from unsafe moves.
+4. Confirmation dialogs are shown before move operations.
+
+8) Persistence and recovery procedure
+1. Slots are saved to local storage (primary + backup key).
+2. Slots are also persisted to disk through Tauri command calls.
+3. Disk writes use atomic write flow (temp file + finalize, with backup fallback).
+4. App flushes backups on lifecycle events (including periodic flush and close handling).
+5. On next startup, app restores from the newest valid source.
+
+9) Developer run procedure
+1. Install dependencies:
+	npm install
+2. Run desktop app in development:
+	npm run tauri dev
+3. Build frontend only:
+	npm run build
+4. Build desktop installer (MSI):
+	npm run tauri build
+
+10) Release/update procedure
+1. Bump version in Rust/Tauri config files when preparing a new installer.
+2. Build MSI and test install/upgrade path.
+3. Verify startup, slot recovery, open/restore actions, and settings persistence on fresh launch.
+
+
+Short summary
+N'Rend is a React + TypeScript + Tauri desktop organizer focused on practical desktop cleanup with strong safeguards. The codebase combines modern UI flows with native Rust procedures for reliable file operations, recovery, and packaging into a Windows desktop product.

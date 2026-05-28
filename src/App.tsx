@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Slot } from "./types/slot";
 import { AppSettings } from "./types/settings";
 import {
@@ -67,27 +66,6 @@ function App() {
       window.removeEventListener("beforeunload", flush);
       window.removeEventListener("pagehide", flush);
       window.clearInterval(intervalId);
-    };
-  }, []);
-
-  useEffect(() => {
-    const appWindow = getCurrentWebviewWindow();
-    let unlistenCloseRequested: (() => void) | undefined;
-
-    void appWindow
-      .onCloseRequested(() => {
-        // Do not block the OS close flow; just trigger a best-effort backup flush.
-        void flushSlotsBackup();
-      })
-      .then((unlisten) => {
-        unlistenCloseRequested = unlisten;
-      })
-      .catch((err) => {
-        console.error("Failed to register close-request listener:", err);
-      });
-
-    return () => {
-      unlistenCloseRequested?.();
     };
   }, []);
 

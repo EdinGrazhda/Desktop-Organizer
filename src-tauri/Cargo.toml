@@ -1,6 +1,6 @@
 [package]
 name = "tauri-appdesknest"
-version = "1.0.2"
+version = "1.0.3"
 description = "N'Rend — Desktop Slot Organizer"
 authors = ["N'Rend"]
 edition = "2021"
